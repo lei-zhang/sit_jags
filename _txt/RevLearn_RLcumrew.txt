@@ -1,0 +1,84 @@
+var v[ns,nt+1,2], tmp[ns,nt,nt,4], pa[ns,nt,2], pe[ns,nt], penc[ns,nt], vtmp[ns,nt+1,2];
+model {
+  
+  for (s in 1:ns) # subject loop
+    {
+      lr[s] ~ dbeta(lr.a, lr.b) T(0.001,0.999)
+      disc[s] ~ dbeta(disc.a,disc.b) T(0.001,0.999)
+      temp.prime[s] ~ dbeta(temp.a, temp.b) T(0.001,0.999)
+      temp[s] <- 20.0 * temp.prime[s]
+
+      cumrew[s,1,] <- c(0.25,0.25,0.25,0.25)
+      cumrew[s,2,] <- c(0.25,0.25,0.25,0.25)
+      vtmp[s,1,1]  <- 0
+      vtmp[s,1,2]  <- 0
+
+	    for (t in 1:nt[s])  # trial loop 
+	    {
+
+        # compute sum of weighted cumulative reward
+        for (o in 1:4) {
+          for (T in 1:t) {
+            wgtrew[t,o,T,s]       <- (disc[s] ^ (t-T)) * otherReward[T,o,s]
+          }
+          cumwgtrew[s,t,o]        <- sum(wgtrew[t,o,,s])
+          cumrew[s,t,o]           <- cumwgtrew[s,t,o] ./ sum(cumwgtrew[s,t,])
+          sum_with_each[s,t,o]    <- otherChoice[s,t,o]==choice1[s,t]
+          sum_against_each[s,t,o] <- otherChoice[s,t,o]!=choice1[s,t]
+          cumrew_with[s,t,o]      <- sum_with_each[s,t,o] * cumrew[s,t,o]
+          cumrew_against[s,t,o]   <- sum_against_each[s,t,o] * cumrew[s,t,o]
+       }
+        sum_with[s,t] <- sum(sum_with_each[s,t,]
+        sum_against[s,t] <- sum(sum_against_each[s,t,])
+        # modify values for current trial according to coherence with or against the group
+        v[s,t,3-choice1[s,t]] <- (sum_against>sum_with) * (vtmp[s,t,3-choice1[s,t]] + cumrew_against[s,t]) +
+                                 (sum_against<=sum_with) * (vtmp[s,t,3-choice1[s,t]] - cumrew_against[s,t])
+        v[s,t,choice1[s,t]] <- (sum_with>=sum_against) * (vtmp[s,t,choice1[s,t]] + cumrew_with[s,t]) + 
+                               (sum_with<sum_against) * (vtmp[s,t,choice1[s,t]] - cumrew_with[s,t]) + 
+
+		    # compute action probability from v[s,t,]
+		    pa[s,t,1] <- exp(temp[s] * v[s,t,1]) / (exp(temp[s] * v[s,t,1]) + exp(temp[s] * v[s,t,2]) + 1.0E-10)
+		    pa[s,t,2] <- exp(temp[s] * v[s,t,2]) / (exp(temp[s] * v[s,t,1]) + exp(temp[s] * v[s,t,2]) + 1.0E-10)
+
+		    # prediction error
+		    pe[s,t]   <- reward[s,t]  - v[s,t,choice2[s,t]]
+        penc[s,t] <- -reward[s,t] - v[s,t,3-choice2[s,t]]
+
+		    # learning (value update)
+		    vtmp[s,t+1,3-choice2[s,t]] <- v[s,t,3-choice2[s,t]] + lr[s] * penc[s,t]
+		    vtmp[s,t+1,  choice2[s,t]] <- v[s,t,  choice2[s,t]] + lr[s] * pe[s,t]
+
+		    # relate data to model using a categorical distribution
+		    choice2[s,t] ~ dcat(pa[s,t,])
+
+      }
+
+    }
+  
+    # HYPERPARAMETERS
+    lr.mu ~ dbeta(1,1) T(0.001,0.999)
+    lr.prime.kappa ~ dbeta(1,1) T(0.001,0.999)
+    lr.kappa <- 3 / (lr.prime.kappa * lr.prime.kappa) - 1
+    lr.a <- lr.mu * lr.kappa
+    lr.b <- (1-lr.mu) * lr.kappa
+
+    coha.mu ~ dbeta(1,1) T(0.001,0.999)
+    coha.prime.kappa ~ dbeta(1,1) T(0.001,0.999)
+    coha.kappa <- 3 / (coha.prime.kappa * coha.prime.kappa) - 1
+    coha.a <- coha.mu * coha.kappa
+    coha.b <- (1-coha.mu) * coha.kappa
+
+    cohw.mu ~ dbeta(1,1) T(0.001,0.999)
+    cohw.prime.kappa ~ dbeta(1,1) T(0.001,0.999)
+    cohw.kappa <- 3 / (cohw.prime.kappa * cohw.prime.kappa) - 1
+    cohw.a <- cohw.mu * cohw.kappa
+    cohw.b <- (1-cohw.mu) * cohw.kappa
+
+    temp.prime.mu ~ dbeta(1,1) T(0.001,0.999)
+    temp.prime.kappa ~ dbeta(1,1) T(0.001,0.999)
+    temp.kappa <- 3 / (temp.prime.kappa * temp.prime.kappa) - 1
+    temp.a <- temp.prime.mu * temp.kappa
+    temp.b <- (1-temp.prime.mu) * temp.kappa
+    temp.mu <- 20 * temp.prime.mu
+
+}
